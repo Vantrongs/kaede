@@ -86,23 +86,23 @@ async function requestInTurn(
   }
 
   /*
-   * The array comes from the extension, which can override its methods or change it
-   * while a prompt is open, so only a copy checked by this loop is used.
+   * The array comes from the extension, which can override its methods (including the iterator)
+   * or change it while a prompt is open, so each index is read and checked once,
+   * and only the copy is used.
    * The check runs before any prompt, since the prompt treats an empty permission as 'close'
    */
-  const requested: Array<string> = [];
+  const requested: Array<string> = Array.from(
+    { "length": permissions.length },
+    (_, index: number): string => {
+      const permission: unknown = permissions[index];
 
-  // 'for-of' would call the iterator of the extension's array
-  // eslint-disable-next-line unicorn/no-for-loop
-  for (let index = 0; index < permissions.length; index++) {
-    const permission: unknown = permissions[index];
+      if (!isKnownPermission(permission)) {
+        throw new TypeError(`Unknown permission: ${String(permission)}`);
+      }
 
-    if (!isKnownPermission(permission)) {
-      throw new TypeError(`Unknown permission: ${String(permission)}`);
-    }
-
-    requested.push(permission);
-  }
+      return permission;
+    },
+  );
 
   const currentPermissions = globalStates.extensions.permissions;
   const key: string = getGrantKey(artifactSha256);
