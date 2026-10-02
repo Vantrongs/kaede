@@ -25,6 +25,8 @@ import type { PermissionType } from "@/types/extensions/permission.type.ts";
 export async function __requestPermissions(
   permissions: Array<PermissionType | string> | unknown,
   extension: string,
+  // Grants are stored per artifact, so a changed archive with the same ID does not inherit them
+  artifactSha256: string,
   request: (
     permission?: PermissionType | string,
     extension?: string,
@@ -43,7 +45,7 @@ export async function __requestPermissions(
       throw new TypeError("A permission must be a string");
     }
 
-    const hasPermission: boolean | undefined = currentPermissions?.[extension]?.[permission];
+    const hasPermission: boolean | undefined = currentPermissions?.[artifactSha256]?.[permission];
 
     if (hasPermission !== undefined) {
       granted.push(hasPermission
@@ -59,8 +61,8 @@ export async function __requestPermissions(
       request(permission, extension, resolve);
     });
 
-    if (currentPermissions[extension] === undefined) {
-      currentPermissions[extension] = {};
+    if (currentPermissions[artifactSha256] === undefined) {
+      currentPermissions[artifactSha256] = {};
     }
 
     granted.push(allowed
@@ -68,7 +70,7 @@ export async function __requestPermissions(
       ? handlePermission(permission as PermissionType, extension)
       : false);
 
-    currentPermissions[extension][permission] = allowed;
+    currentPermissions[artifactSha256][permission] = allowed;
   }
 
   // Clear the permissions request state by passing nothing

@@ -109,7 +109,7 @@ onMounted(async () => {
 
   log.debug(__PRE_BUNDLED_FILENAME__, "Initializing all enabled sandboxed extensions");
   for (const extension of toExecute.sandbox) {
-    const { id, code, metadata } = extension;
+    const { id, artifactSha256, code, metadata } = extension;
     const needsCleanRun: boolean = await Extensions.dirtyLifecycle(
       extensionStates.executed,
       extension,
@@ -122,7 +122,7 @@ onMounted(async () => {
 
     const permissions = metadata.permissions ?? [];
 
-    const api = Extensions.runInSandbox({ id, permissions, code });
+    const api = Extensions.runInSandbox({ id, artifactSha256, permissions, code });
 
     // If 'api' is missing, then the extension did not load
     if (!api) {

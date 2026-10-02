@@ -7,7 +7,6 @@ import { ContextMenu } from "@/constants/application.ts";
 import Permissions from "@/constants/permissions.ts";
 import { GlobalInternals } from "@/extendable/global-internals.ts";
 import { __requestPermissions } from "@/lib/permissions/request-permissions.ts";
-import { globalStates } from "@/states/global.ts";
 import type { PermissionType } from "@/types/extensions/permission.type.ts";
 
 const requestedPermissionState = ref<{
@@ -42,8 +41,9 @@ function requestPermissions(
   // After all, this is the value provided by the extension
   permissions: unknown,
   extension: string,
+  artifactSha256: string,
 ): Promise<Array<unknown>> {
-  return __requestPermissions(permissions, extension, handlePermissionRequest);
+  return __requestPermissions(permissions, extension, artifactSha256, handlePermissionRequest);
 }
 
 function handleUserRequest(state: boolean): void {
@@ -51,16 +51,7 @@ function handleUserRequest(state: boolean): void {
     return;
   }
 
-  const currentPermissions = globalStates.extensions.permissions;
-  const _extension = requestedPermissionState.value.extension;
-  const _permission = requestedPermissionState.value.id;
-
-  if (!currentPermissions[_extension]) {
-    currentPermissions[_extension] = {};
-  }
-
-  currentPermissions[_extension][_permission] = state;
-
+  // '__requestPermissions' stores the answer once it resolves
   requestedPermissionState.value.resolve(state);
 }
 

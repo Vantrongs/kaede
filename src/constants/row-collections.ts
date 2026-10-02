@@ -265,9 +265,12 @@ const extensionHandler = {
          */
         const Extensions = GlobalObject.libs.Extensions;
         // This is a sync function, but the lifecycle handlers might be async
-        const api = Extensions.runInSandbox(
-          { "id": extension.id, permissions, "code": extension.code },
-        );
+        const api = Extensions.runInSandbox({
+          "id"            : extension.id,
+          "artifactSha256": extension.artifactSha256,
+          permissions,
+          "code"          : extension.code,
+        });
 
         if (!api) {
           throw new Error("Failed to run extension");

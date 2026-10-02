@@ -24,10 +24,13 @@ import type { PermissionType } from "@/types/extensions/permission.type.ts";
 
 export function grantStaticPermissions({
   id,
+  artifactSha256,
   permissions,
 }: {
-  "id"          : string;
-  "permissions"?: Array<PermissionType>;
+  "id"            : string;
+  // Grants are stored per artifact, so a changed archive with the same ID does not inherit them
+  "artifactSha256": string;
+  "permissions"?  : Array<PermissionType>;
 }): Record<string, unknown> {
   const currentPermissions = globalStates.extensions.permissions;
   const scopedThis: Record<string, unknown> = {};
@@ -36,13 +39,13 @@ export function grantStaticPermissions({
     return scopedThis;
   }
 
-  if (currentPermissions?.[id] === undefined) {
-    currentPermissions[id] = {};
+  if (currentPermissions?.[artifactSha256] === undefined) {
+    currentPermissions[artifactSha256] = {};
   }
 
   for (const permission of permissions) {
     scopedThis[permission] = handlePermission(permission, id);
-    currentPermissions[id][permission] = true;
+    currentPermissions[artifactSha256][permission] = true;
   }
 
   return harden(scopedThis);
