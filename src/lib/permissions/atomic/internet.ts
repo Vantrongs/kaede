@@ -24,26 +24,6 @@ import type { SandboxFetchRequestType } from "@/lib/extensions/sandbox/host/host
 import type { SandboxFetchResponse } from "@/lib/extensions/sandbox/protocol.ts";
 import { log } from "@/lib/logging/log.ts";
 
-type RestrictedBlob = {
-  "size"       : number;
-  "type"       : string;
-  "arrayBuffer": () => Promise<ArrayBuffer>;
-  "text"       : () => Promise<string>;
-  "slice"      : (start?: number, end?: number, contentType?: string) => RestrictedBlob;
-};
-type RestrictedResponse = {
-  "json"       : Response["json"];
-  "text"       : Response["text"];
-  "arrayBuffer": Response["arrayBuffer"];
-  "blob"       : () => Promise<RestrictedBlob>;
-  "ok"         : boolean;
-  "redirected" : boolean;
-  "status"     : number;
-  "statusText" : string;
-  "type"       : Response["type"];
-  "url"        : string;
-};
-
 function guard(input: string | unknown, allowed: string): void {
   if (typeof input !== "string") {
     throw new TypeError("The input URL for the fetch should be a string");
@@ -105,56 +85,6 @@ function validateRequestData(body: unknown, contentType: unknown): void {
   }
 }
 
-function buildSafeBlob(blob: Blob): RestrictedBlob {
-  return harden({
-    "size"       : blob.size,
-    "type"       : blob.type,
-    "arrayBuffer": async () => {
-      const buffer: ArrayBuffer = await blob.arrayBuffer();
-
-      return harden(buffer.slice(0));
-    },
-    "text": async () => {
-      const text: string = await blob.text();
-
-      return text;
-    },
-    "slice": (start?: number, end?: number, contentType?: string): RestrictedBlob => {
-      return buildSafeBlob(blob.slice(start, end, contentType));
-    },
-  });
-}
-function buildSafeResponse(response: Response): RestrictedResponse {
-  return harden({
-    "json": async () => {
-      const json = await response.json();
-
-      return harden(json);
-    },
-    "text": async () => {
-      const text: string = await response.text();
-
-      return text;
-    },
-    "arrayBuffer": async () => {
-      const buffer: ArrayBuffer = await response.arrayBuffer();
-
-      return harden(buffer.slice(0));
-    },
-    "blob": async (): Promise<RestrictedBlob> => {
-      const blob: Blob = await response.blob();
-
-      return buildSafeBlob(blob);
-    },
-    "ok"        : response.ok,
-    "redirected": response.redirected,
-    "status"    : response.status,
-    "statusText": response.statusText,
-    "type"      : response.type,
-    "url"       : response.url,
-  });
-}
-
 function hook({ id, url, argument, method, label, body }: {
   "id"      : string;
   "url"     : string | unknown;
@@ -171,110 +101,9 @@ function hook({ id, url, argument, method, label, body }: {
 }
 
 /**
- * The main idea here is to allow only known things and reject unknown,
- * even if something that was unknown is safe.
- *
- * @param id - a string that represents the plugin ID
- * @param scope - literals that represent the scope of the permission ('base::scope::argument')
- * @param argument - a string that represents the allowed URL
- */
-export function handleInternetPermission({
-  id,
-  scope,
-  argument,
-}: {
-  "id"       : string;
-  "scope"    : "http-get" | "http-post";
-  "argument"?: string;
-}): unknown {
-  if (!argument) {
-    throw new Error("Internet permissions must include a URL scope");
-  }
-
-  switch (scope) {
-    case "http-get": {
-      const method = "GET" as const;
-
-      return harden({
-        "webFetch": async (url: string): Promise<RestrictedResponse> => {
-          hook({ id, url, argument, method, "label": "Web" });
-
-          const response: Response = await fetch(url, { method, "redirect": "manual" });
-
-          return buildSafeResponse(response);
-        },
-        "tauriFetch": async (url: string): Promise<RestrictedResponse> => {
-          hook({ id, url, argument, method, "label": "Tauri" });
-
-          const response: Response = await tauriFetch(url, { method, "redirect": "manual" });
-
-          return buildSafeResponse(response);
-        },
-      });
-    }
-    case "http-post": {
-      const method = "POST" as const;
-
-      return harden({
-        "webFetch": async (
-          url: string,
-          body: Uint8Array | ArrayBuffer | string | undefined,
-          contentType: string = "text/plain",
-        ): Promise<RestrictedResponse> => {
-          validateRequestData(body, contentType);
-          hook({ id, url, argument, method, "label": "Web", body });
-
-          const response: Response = await fetch(url, {
-            method,
-
-            /*
-             * We are using '@ts-ignore' instead of '@ts-expect-error' since uhm there are no errors
-             */
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore 'dts-bundle-generator' throws an error even though there are no errors????
-            body,
-            "redirect": "manual",
-            "headers" : {
-              "Content-Type": contentType,
-            },
-          });
-
-          return buildSafeResponse(response);
-        },
-        "tauriFetch": async (
-          url: string,
-          body: Uint8Array | ArrayBuffer | string | undefined,
-          contentType: string = "text/plain",
-        ): Promise<RestrictedResponse> => {
-          validateRequestData(body, contentType);
-          hook({ id, url, argument, method, "label": "Tauri", body });
-
-          const response: Response = await tauriFetch(url, {
-            method,
-
-            /*
-             * We are using '@ts-ignore' instead of '@ts-expect-error' since uhm there are no errors
-             */
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore 'dts-bundle-generator' throws an error even though there are no errors????
-            body,
-            "redirect": "manual",
-            "headers" : {
-              "Content-Type": contentType,
-            },
-          });
-
-          return buildSafeResponse(response);
-        },
-      });
-    }
-  }
-}
-
-/**
  * Performs a fetch for a sandboxed plugin after the host checked its grant.
- * The same rules as above apply: the URL must stay inside the granted scope,
- * redirects are not followed, and POST bodies are restricted.
+ * The URL must stay inside the granted scope, redirects are not followed,
+ * and POST bodies are restricted.
  *
  * @param id - a string that represents the plugin ID
  * @param request - untrusted request parameters and the granted URL scope

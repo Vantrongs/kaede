@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { ArkStateType } from "@/lib/extensions/sandbox/ark-surface.ts";
+
 /*
  * Messages between the launcher and a sandboxed plugin worker.
  * Everything that comes from the worker is untrusted and validated by the host
@@ -68,4 +70,35 @@ export type SandboxFetchResponse = {
   "url"        : string;
   "contentType": string;
   "body"       : ArrayBuffer;
+};
+
+// Mirror updates the launcher read after it applied the operation batch numbered 'batch'
+export type UIStateType = {
+  "batch"  : number;
+  "updates": Array<ArkStateType & { "handle": number }>;
+};
+
+// One UI call of a plugin; node arguments are '{ handle }' objects
+export type UIOperationType = {
+  "handle" : number;
+  "method" : string;
+  "input"  : Array<unknown>;
+  // The handle the worker assigned to the node this call creates
+  "result"?: number;
+};
+
+export type UIEventTargetType = {
+  "id"   : string;
+  "value": string | number | boolean | undefined;
+};
+
+// A snapshot of an event that the launcher forwards to a plugin listener
+export type UIEventType = {
+  "type"         : string;
+  "ctrlKey"      : boolean;
+  "altKey"       : boolean;
+  "shiftKey"     : boolean;
+  "metaKey"      : boolean;
+  "target"       : UIEventTargetType;
+  "currentTarget": UIEventTargetType;
 };

@@ -53,6 +53,7 @@ function boot(event: MessageEvent<SandboxBootMessage>): void {
   const evaluateIndirectly: (code: string) => unknown = globalThis.eval;
   const captures = {
     "Date"          : Date,
+    "queueMicrotask": queueMicrotask,
     "decoder"       : (new TextDecoder),
     "performanceNow": performance.now.bind(performance),
     "timeOrigin"    : performance.timeOrigin,

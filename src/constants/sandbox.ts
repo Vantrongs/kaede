@@ -24,6 +24,8 @@ export const SandboxLimits = {
   "MessageBytes"      : 8 * 1024 * 1024,
   // The number of live UI nodes created by one plugin
   "UINodes"           : 10_000,
+  // The number of UI operations in one batch; the worker splits larger batches
+  "UIOperations"      : 10_000,
   // How long the plugin code evaluation or a lifecycle handler may run
   "LifecycleTimeoutMs": 10_000,
 } as const;

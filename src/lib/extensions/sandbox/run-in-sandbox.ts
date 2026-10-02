@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createSafeDocument } from "ark-of-atrahasis";
+
 import { SandboxLimits } from "@/constants/sandbox.ts";
 import { GlobalInternals } from "@/extendable/global-internals.ts";
 import Errors from "@/lib/errors";
@@ -25,11 +27,11 @@ import {
   createSandboxHost,
   type SandboxHostType,
 } from "@/lib/extensions/sandbox/host/sandbox-host.ts";
+import { createUIHost, type UIEnvironmentType } from "@/lib/extensions/sandbox/host/ui-host.ts";
 import type {
   SandboxBootMessage,
   SandboxLifecycleHook,
 } from "@/lib/extensions/sandbox/protocol.ts";
-import { runInCompartment } from "@/lib/extensions/sandbox/run-in-compartment.ts";
 import SandboxWorker from "@/lib/extensions/sandbox/worker/main.ts?worker&inline";
 import { log } from "@/lib/logging/log.ts";
 import { fetchForPlugin } from "@/lib/permissions/atomic/internet.ts";
@@ -56,6 +58,36 @@ function forgetExtension(artifactSha256: string): void {
   }
 }
 
+function createContainerId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+
+  const hex: string = [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
+
+  return `__extension-sandbox__container-${hex}`;
+}
+
+const UIEnvironment: UIEnvironmentType = {
+  "mount": elementId => {
+    const parent: HTMLElement | null = document.getElementById(elementId);
+
+    if (parent === null) {
+      return;
+    }
+
+    const container: HTMLDivElement = document.createElement("div");
+
+    container.id = createContainerId();
+    // Keeps 'position: fixed' plugin content inside the container
+    container.style.contain = "paint";
+    parent.append(container);
+
+    return { "containerId": container.id, "unmount": () => container.remove() };
+  },
+  createSafeDocument,
+  "scheduleFrame": callback => requestAnimationFrame(() => callback()),
+  "currentTarget": () => window.event?.currentTarget ?? null,
+};
+
 function startWorker({ id, artifactSha256, code, permissions }: {
   "id"            : string;
   "artifactSha256": string;
@@ -75,16 +107,25 @@ function startWorker({ id, artifactSha256, code, permissions }: {
   const started = new Promise<boolean>(resolve => {
     settle = resolve;
   });
+  const ui = createUIHost({
+    isGranted,
+    "notify"       : (method, parameters) => host.notify(method, parameters),
+    "maxNodes"     : SandboxLimits.UINodes,
+    "maxOperations": SandboxLimits.UIOperations,
+    "environment"  : UIEnvironment,
+  });
   const host: SandboxHostType = createSandboxHost({
     id,
     "port"           : channel.port1,
     "messageBytes"   : SandboxLimits.MessageBytes,
     "terminateWorker": () => worker.terminate(),
     "onTerminated"   : () => {
+      ui.dispose();
       settle(false);
       forgetExtension(artifactSha256);
     },
     "methods": {
+      "ui.ops": { "kind": "notify", "handle": parameters => ui.apply(parameters) },
       ...createHostMethods({
         isGranted,
         requestPermissions,
@@ -159,16 +200,6 @@ export async function runInSandbox({
       `Could not grant static permissions to the '${id}' extension:`,
       Errors.prettify(error),
     );
-  }
-
-  if (granted.some(permission => permission.startsWith("ui::"))) {
-    const api = runInCompartment({ id, artifactSha256, code, "permissions": granted });
-
-    return api && {
-      "enable"      : async () => api.enable(),
-      "disable"     : async () => api.disable(),
-      "afterDisable": async () => api.afterDisable(),
-    };
   }
 
   const host: SandboxHostType | undefined = await startWorker({

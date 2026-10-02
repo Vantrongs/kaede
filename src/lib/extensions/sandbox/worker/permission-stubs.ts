@@ -21,11 +21,13 @@ import type {
   SandboxFetchResponse,
   SandboxLogLevel,
 } from "@/lib/extensions/sandbox/protocol.ts";
+import { createUIStubs } from "@/lib/extensions/sandbox/worker/ark-proxy.ts";
 import { buildRestrictedResponse } from "@/lib/extensions/sandbox/worker/restricted-response.ts";
 import type { WorkerRpcType } from "@/lib/extensions/sandbox/worker/worker-rpc.ts";
 
 export type WorkerCapturesType = {
   "Date"          : DateConstructor;
+  "queueMicrotask": (callback: () => void) => void;
   "decoder"       : TextDecoder;
   "performanceNow": () => number;
   "timeOrigin"    : number;
@@ -65,6 +67,7 @@ export function createPermissionStubs(
 
     return buildRestrictedResponse(response as SandboxFetchResponse, captures.decoder);
   };
+  const createDocument = createUIStubs(rpc, captures.queueMicrotask);
   const performance = Object.freeze({
     "timeOrigin": captures.timeOrigin,
     "now"       : (): number => captures.performanceNow(),
@@ -109,6 +112,10 @@ export function createPermissionStubs(
       }
       case "time::date": {
         return Object.freeze({ "Date": captures.Date });
+      }
+      case "ui::basic":
+      case "ui::interactivity": {
+        return createDocument(permission);
       }
       default: {
         return undefined;
