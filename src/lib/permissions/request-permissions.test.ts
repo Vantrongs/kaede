@@ -134,7 +134,9 @@ function modal(): {
     "shown"  : (): string | undefined => state?.permission,
     "answer" : (answer: boolean): void => state?.resolve(answer),
     "request": (permission, _extension, resolve): void => {
-      state = permission && resolve ? { permission, resolve } : undefined;
+      state = permission === undefined || resolve === undefined
+        ? undefined
+        : { permission, resolve };
     },
   };
 }
@@ -229,4 +231,14 @@ test("the extension cannot change the permissions after they are checked", async
   expect(shown()).toBe("time::date");
   answer(true);
   expect(await changed).toEqual(["granted scope", "granted scope"]);
+});
+
+test("a request from an extension with an empty ID is prompted", async () => {
+  const { shown, answer, request } = modal();
+  const empty = __requestPermissions([permission], "", "artifact-x", request);
+
+  await Bun.sleep(0);
+  expect(shown()).toBe(permission);
+  answer(false);
+  expect(await empty).toEqual([false]);
 });

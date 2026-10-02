@@ -27,7 +27,8 @@ function handlePermissionRequest(
   extension?: string,
   resolve?: (state: boolean) => void,
 ): void {
-  if (!permission || !extension || !resolve) {
+  // Only a call without a resolver closes the prompt: an extension ID may be empty
+  if (permission === undefined || extension === undefined || resolve === undefined) {
     requestedPermissionState.value = undefined;
 
     return;
