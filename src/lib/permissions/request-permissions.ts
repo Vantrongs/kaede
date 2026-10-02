@@ -85,11 +85,23 @@ async function requestInTurn(
     throw new TypeError("Permissions must be an array");
   }
 
-  // Checked before any prompt, since the prompt treats an empty permission as 'close'
-  const unknownIndex: number = permissions.findIndex(permission => !isKnownPermission(permission));
+  /*
+   * The array comes from the extension, which can override its methods or change it
+   * while a prompt is open, so only a copy checked by this loop is used.
+   * The check runs before any prompt, since the prompt treats an empty permission as 'close'
+   */
+  const requested: Array<string> = [];
 
-  if (unknownIndex !== -1) {
-    throw new TypeError(`Unknown permission: ${String(permissions[unknownIndex])}`);
+  // 'for-of' would call the iterator of the extension's array
+  // eslint-disable-next-line unicorn/no-for-loop
+  for (let index = 0; index < permissions.length; index++) {
+    const permission: unknown = permissions[index];
+
+    if (!isKnownPermission(permission)) {
+      throw new TypeError(`Unknown permission: ${String(permission)}`);
+    }
+
+    requested.push(permission);
   }
 
   const currentPermissions = globalStates.extensions.permissions;
@@ -97,7 +109,7 @@ async function requestInTurn(
   const granted = [];
 
   try {
-    for (const permission of permissions) {
+    for (const permission of requested) {
       const hasPermission: boolean | undefined = currentPermissions?.[key]?.[permission];
 
       if (hasPermission !== undefined) {

@@ -210,3 +210,23 @@ test("closing the prompt rejects the active and the waiting requests", async () 
   reopened.answer(true);
   expect(await next).toEqual(["granted scope"]);
 });
+
+test("the extension cannot change the permissions after they are checked", async () => {
+  const { shown, answer, request } = modal();
+  const lying = [""];
+
+  Object.defineProperty(lying, "findIndex", { "value": (): number => -1 });
+  await expect(__requestPermissions(lying, pluginId, "artifact-x", request))
+    .rejects.toThrow("Unknown permission");
+
+  const changing = [permission, "time::date"];
+  const changed = __requestPermissions(changing, pluginId, "artifact-y", request);
+
+  await Bun.sleep(0);
+  changing[1] = "";
+  answer(true);
+  await Bun.sleep(0);
+  expect(shown()).toBe("time::date");
+  answer(true);
+  expect(await changed).toEqual(["granted scope", "granted scope"]);
+});
