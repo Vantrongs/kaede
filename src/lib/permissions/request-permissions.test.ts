@@ -38,7 +38,10 @@ mock.module("@/lib/permissions/handle-permission.ts", () => ({
 }));
 
 const { grantStaticPermissions } = await import("@/lib/permissions/grant-static-permissions.ts");
-const { __requestPermissions } = await import("@/lib/permissions/request-permissions.ts");
+const {
+  __cancelPermissionRequests,
+  __requestPermissions,
+} = await import("@/lib/permissions/request-permissions.ts");
 
 const pluginId: string = "plugin";
 const permission = "time::performance";
@@ -168,5 +171,42 @@ test("a failing grant rejects and dismisses the prompt", async () => {
 
   await Bun.sleep(0);
   answer(true);
+  expect(await next).toEqual(["granted scope"]);
+});
+
+test("an unknown permission rejects without a prompt and does not block others", async () => {
+  const { shown, answer, request } = modal();
+
+  await expect(__requestPermissions([""], pluginId, "artifact-x", request))
+    .rejects.toThrow("Unknown permission");
+  expect(shown()).toBeUndefined();
+
+  const next = __requestPermissions([permission], pluginId, "artifact-y", request);
+
+  await Bun.sleep(0);
+  expect(shown()).toBe(permission);
+  answer(true);
+  expect(await next).toEqual(["granted scope"]);
+});
+
+test("closing the prompt rejects the active and the waiting requests", async () => {
+  const { shown, request } = modal();
+  const active = __requestPermissions([permission], pluginId, "artifact-x", request);
+  const waiting = __requestPermissions([permission], pluginId, "artifact-y", request);
+
+  await Bun.sleep(0);
+  __cancelPermissionRequests();
+
+  await expect(active).rejects.toThrow("closed");
+  await expect(waiting).rejects.toThrow("closed");
+  expect(shown()).toBeUndefined();
+  expect(storedPermissions).toEqual({});
+
+  // A prompt mounted again serves new requests
+  const reopened = modal();
+  const next = __requestPermissions([permission], pluginId, "artifact-x", reopened.request);
+
+  await Bun.sleep(0);
+  reopened.answer(true);
   expect(await next).toEqual(["granted scope"]);
 });

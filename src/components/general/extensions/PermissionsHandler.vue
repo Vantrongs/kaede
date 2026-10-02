@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 
 import MaterialRipple from "@/components/general/base/MaterialRipple.vue";
 import AllowButton from "@/components/general/extensions/permissions/AllowButton.vue";
 import { ContextMenu } from "@/constants/application.ts";
 import Permissions from "@/constants/permissions.ts";
 import { GlobalInternals } from "@/extendable/global-internals.ts";
-import { __requestPermissions } from "@/lib/permissions/request-permissions.ts";
+import {
+  __cancelPermissionRequests,
+  __requestPermissions,
+} from "@/lib/permissions/request-permissions.ts";
 import type { PermissionType } from "@/types/extensions/permission.type.ts";
 
 const requestedPermissionState = ref<{
@@ -56,6 +59,14 @@ function handleUserRequest(state: boolean): void {
 }
 
 GlobalInternals.requestPermissions = requestPermissions;
+
+// Extensions are disabled after this component is gone, and their requests must not wait forever
+onUnmounted(() => {
+  GlobalInternals.requestPermissions = async (): Promise<Array<unknown>> => {
+    throw new Error("The permission prompt is closed");
+  };
+  __cancelPermissionRequests();
+});
 </script>
 
 <template>

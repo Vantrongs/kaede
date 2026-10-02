@@ -18,6 +18,7 @@
 
 import "ses";
 
+import { PermissionsList } from "@/constants/permissions.ts";
 import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
 import { handlePermission } from "@/lib/permissions/handle-permission.ts";
 import { globalStates } from "@/states/global.ts";
@@ -31,6 +32,26 @@ type PromptType = (
 
 // The prompt shows one permission at a time, so concurrent requests wait for their turn
 let queue: Promise<unknown> = Promise.resolve();
+// Requests made before the prompt was closed belong to an older generation
+let generation: number = 0;
+let cancelPrompt: ((reason: Error) => void) | undefined;
+
+// The prompt is closed when the extensions loader unmounts, and nobody would answer it anymore
+export function __cancelPermissionRequests(): void {
+  generation++;
+  cancelPrompt?.(new Error("The permission prompt was closed"));
+}
+
+function isKnownPermission(permission: unknown): permission is string {
+  if (typeof permission !== "string") {
+    return false;
+  }
+
+  // The third part is an argument, e.g., 'internet::http-get::https://github.com'
+  const [base, scope]: Array<string> = permission.split("::");
+
+  return PermissionsList.includes(`${base}::${scope}` as PermissionType);
+}
 
 export function __requestPermissions(
   permissions: Array<PermissionType | string> | unknown,
@@ -39,7 +60,14 @@ export function __requestPermissions(
   artifactSha256: string,
   request: PromptType,
 ): Promise<Array<unknown>> {
-  const current = queue.then(() => requestInTurn(permissions, extension, artifactSha256, request));
+  const requestGeneration: number = generation;
+  const current = queue.then(() => {
+    if (requestGeneration !== generation) {
+      throw new Error("The permission prompt was closed");
+    }
+
+    return requestInTurn(permissions, extension, artifactSha256, request);
+  });
 
   // A failed request must not block the ones after it
   queue = current.catch(() => {});
@@ -57,16 +85,19 @@ async function requestInTurn(
     throw new TypeError("Permissions must be an array");
   }
 
+  // Checked before any prompt, since the prompt treats an empty permission as 'close'
+  const unknownIndex: number = permissions.findIndex(permission => !isKnownPermission(permission));
+
+  if (unknownIndex !== -1) {
+    throw new TypeError(`Unknown permission: ${String(permissions[unknownIndex])}`);
+  }
+
   const currentPermissions = globalStates.extensions.permissions;
   const key: string = getGrantKey(artifactSha256);
   const granted = [];
 
   try {
     for (const permission of permissions) {
-      if (typeof permission !== "string") {
-        throw new TypeError("A permission must be a string");
-      }
-
       const hasPermission: boolean | undefined = currentPermissions?.[key]?.[permission];
 
       if (hasPermission !== undefined) {
@@ -79,7 +110,11 @@ async function requestInTurn(
       }
 
       // This triggers a modal window with two buttons: 'allow' and 'disallow'
-      const allowed = await new Promise((resolve: (state: boolean) => void) => {
+      const allowed = await new Promise((
+        resolve: (state: boolean) => void,
+        reject: (reason: Error) => void,
+      ) => {
+        cancelPrompt = reject;
         request(permission, extension, resolve);
       });
 
@@ -95,6 +130,7 @@ async function requestInTurn(
       currentPermissions[key][permission] = allowed;
     }
   } finally {
+    cancelPrompt = undefined;
     // Clear the permissions request state by passing nothing, also when a grant failed
     request();
   }
