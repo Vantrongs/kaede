@@ -229,7 +229,7 @@ bun run build
 
 ## License
 
-[![license-badge]](https://github.com/kaede-basement/kaede/blob/main/LICENSE)
+[![license-badge]](https://github.com/kaede-basement/kaede/blob/nightly/LICENSE)
 
 ## Credits and AI Usage
 
