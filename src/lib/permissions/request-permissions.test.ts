@@ -22,12 +22,19 @@ import { beforeEach, expect, mock, test } from "bun:test";
 (globalThis as unknown as { "harden": <T>(value: T) => T }).harden = <T>(value: T): T => value;
 
 const storedPermissions: Record<string, Record<string, boolean>> = {};
+const failingPermission = "internet::http-get";
 
 mock.module("@/states/global.ts", () => ({
   "globalStates": { "extensions": { "permissions": storedPermissions } },
 }));
 mock.module("@/lib/permissions/handle-permission.ts", () => ({
-  "handlePermission": (): string => "granted scope",
+  "handlePermission": (permission: string): string => {
+    if (permission === failingPermission) {
+      throw new TypeError("Internet permissions must include a URL scope");
+    }
+
+    return "granted scope";
+  },
 }));
 
 const { grantStaticPermissions } = await import("@/lib/permissions/grant-static-permissions.ts");
@@ -99,4 +106,67 @@ test("a grant stays visible to the same artifact", async () => {
 
   expect(prompted).toEqual([]);
   expect(granted).toEqual(["granted scope"]);
+});
+
+test("a legacy grant under an ID equal to an artifact hash is not its grant", async () => {
+  // Grants used to be keyed by plugin ID, which is the archive file name
+  storedPermissions["artifact-x"] = { [permission]: true };
+
+  const { prompted, request } = prompter(false);
+  const granted = await __requestPermissions([permission], pluginId, "artifact-x", request);
+
+  expect(prompted).toEqual([permission]);
+  expect(granted).toEqual([false]);
+});
+
+// Holds one prompt at a time, like 'PermissionsHandler.vue'
+function modal(): {
+  "shown"  : () => string | undefined;
+  "answer" : (state: boolean) => void;
+  "request": (permission?: string, extension?: string, resolve?: (state: boolean) => void) => void;
+} {
+  let state: { "permission": string; "resolve": (state: boolean) => void } | undefined;
+
+  return {
+    "shown"  : (): string | undefined => state?.permission,
+    "answer" : (answer: boolean): void => state?.resolve(answer),
+    "request": (permission, _extension, resolve): void => {
+      state = permission && resolve ? { permission, resolve } : undefined;
+    },
+  };
+}
+
+test("overlapping requests each get their own answer", async () => {
+  const { shown, answer, request } = modal();
+  const first = __requestPermissions([permission], pluginId, "artifact-x", request);
+  const empty = __requestPermissions([], pluginId, "artifact-z", request);
+  const second = __requestPermissions([permission], pluginId, "artifact-y", request);
+
+  await Bun.sleep(0);
+  expect(shown()).toBe(permission);
+  answer(true);
+  expect(await first).toEqual(["granted scope"]);
+  expect(await empty).toEqual([]);
+
+  await Bun.sleep(0);
+  expect(shown()).toBe(permission);
+  answer(false);
+  expect(await second).toEqual([false]);
+  expect(shown()).toBeUndefined();
+});
+
+test("a failing grant rejects and dismisses the prompt", async () => {
+  const { shown, answer, request } = modal();
+  const failing = __requestPermissions([failingPermission], pluginId, "artifact-x", request);
+
+  await Bun.sleep(0);
+  answer(true);
+  await expect(failing).rejects.toThrow("URL scope");
+  expect(shown()).toBeUndefined();
+
+  const next = __requestPermissions([permission], pluginId, "artifact-x", request);
+
+  await Bun.sleep(0);
+  answer(true);
+  expect(await next).toEqual(["granted scope"]);
 });

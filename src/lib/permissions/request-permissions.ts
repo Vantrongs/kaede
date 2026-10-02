@@ -18,63 +18,86 @@
 
 import "ses";
 
+import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
 import { handlePermission } from "@/lib/permissions/handle-permission.ts";
 import { globalStates } from "@/states/global.ts";
 import type { PermissionType } from "@/types/extensions/permission.type.ts";
 
-export async function __requestPermissions(
+type PromptType = (
+  permission?: PermissionType | string,
+  extension?: string,
+  resolve?: (state: boolean) => void
+) => void;
+
+// The prompt shows one permission at a time, so concurrent requests wait for their turn
+let queue: Promise<unknown> = Promise.resolve();
+
+export function __requestPermissions(
   permissions: Array<PermissionType | string> | unknown,
   extension: string,
   // Grants are stored per artifact, so a changed archive with the same ID does not inherit them
   artifactSha256: string,
-  request: (
-    permission?: PermissionType | string,
-    extension?: string,
-    resolve?: (state: boolean) => void
-  ) => void,
+  request: PromptType,
+): Promise<Array<unknown>> {
+  const current = queue.then(() => requestInTurn(permissions, extension, artifactSha256, request));
+
+  // A failed request must not block the ones after it
+  queue = current.catch(() => {});
+
+  return current;
+}
+
+async function requestInTurn(
+  permissions: Array<PermissionType | string> | unknown,
+  extension: string,
+  artifactSha256: string,
+  request: PromptType,
 ): Promise<Array<unknown>> {
   if (!Array.isArray(permissions)) {
     throw new TypeError("Permissions must be an array");
   }
 
   const currentPermissions = globalStates.extensions.permissions;
+  const key: string = getGrantKey(artifactSha256);
   const granted = [];
 
-  for (const permission of permissions) {
-    if (typeof permission !== "string") {
-      throw new TypeError("A permission must be a string");
-    }
+  try {
+    for (const permission of permissions) {
+      if (typeof permission !== "string") {
+        throw new TypeError("A permission must be a string");
+      }
 
-    const hasPermission: boolean | undefined = currentPermissions?.[artifactSha256]?.[permission];
+      const hasPermission: boolean | undefined = currentPermissions?.[key]?.[permission];
 
-    if (hasPermission !== undefined) {
-      granted.push(hasPermission
+      if (hasPermission !== undefined) {
+        granted.push(hasPermission
+          // 'handlePermission' validates the permission type, so we are safe to typecast
+          ? handlePermission(permission as PermissionType, extension)
+          : false);
+
+        continue;
+      }
+
+      // This triggers a modal window with two buttons: 'allow' and 'disallow'
+      const allowed = await new Promise((resolve: (state: boolean) => void) => {
+        request(permission, extension, resolve);
+      });
+
+      granted.push(allowed
         // 'handlePermission' validates the permission type, so we are safe to typecast
         ? handlePermission(permission as PermissionType, extension)
         : false);
 
-      continue;
+      if (currentPermissions[key] === undefined) {
+        currentPermissions[key] = {};
+      }
+
+      currentPermissions[key][permission] = allowed;
     }
-
-    // This triggers a modal window with two buttons: 'allow' and 'disallow'
-    const allowed = await new Promise((resolve: (state: boolean) => void) => {
-      request(permission, extension, resolve);
-    });
-
-    if (currentPermissions[artifactSha256] === undefined) {
-      currentPermissions[artifactSha256] = {};
-    }
-
-    granted.push(allowed
-      // 'handlePermission' validates the permission type, so we are safe to typecast
-      ? handlePermission(permission as PermissionType, extension)
-      : false);
-
-    currentPermissions[artifactSha256][permission] = allowed;
+  } finally {
+    // Clear the permissions request state by passing nothing, also when a grant failed
+    request();
   }
-
-  // Clear the permissions request state by passing nothing
-  request();
 
   return harden(granted);
 }

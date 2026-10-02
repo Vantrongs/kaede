@@ -18,6 +18,7 @@
 
 import "ses";
 
+import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
 import { handlePermission } from "@/lib/permissions/handle-permission.ts";
 import { globalStates } from "@/states/global.ts";
 import type { PermissionType } from "@/types/extensions/permission.type.ts";
@@ -39,13 +40,15 @@ export function grantStaticPermissions({
     return scopedThis;
   }
 
-  if (currentPermissions?.[artifactSha256] === undefined) {
-    currentPermissions[artifactSha256] = {};
+  const key: string = getGrantKey(artifactSha256);
+
+  if (currentPermissions?.[key] === undefined) {
+    currentPermissions[key] = {};
   }
 
   for (const permission of permissions) {
     scopedThis[permission] = handlePermission(permission, id);
-    currentPermissions[artifactSha256][permission] = true;
+    currentPermissions[key][permission] = true;
   }
 
   return harden(scopedThis);
