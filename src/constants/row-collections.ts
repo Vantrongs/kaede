@@ -65,7 +65,7 @@ const extensionHandler = {
 
     /*
      * If we import 'Extensions' from our 'libs/' folder, then we will break our
-     * code-splitting, adding more than 100 KB of packages ('SES', 'ark-of-atrahasis', etc.)
+     * code-splitting, adding packages ('ark-of-atrahasis', the sandbox worker, etc.)
      * to the index JavaScript file. Those packages are loaded only when extensions feature
      * are enabled, and since this code changes extensions, we can imply that the extensions
      * are enabled.

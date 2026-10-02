@@ -101,7 +101,7 @@ onMounted(async () => {
   if (!hasSandboxedPlugins) {
     log.debug(
       __PRE_BUNDLED_FILENAME__,
-      "User does not have sandboxed plugins. Environment lockdown is not needed",
+      "User does not have sandboxed plugins. No sandbox workers are needed",
     );
 
     return await Extensions.showWebviewWindow();

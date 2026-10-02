@@ -16,8 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import "ses";
-
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import type { SandboxFetchRequestType } from "@/lib/extensions/sandbox/host/host-methods.ts";

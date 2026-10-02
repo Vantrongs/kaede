@@ -102,7 +102,7 @@ function boot(event: MessageEvent<SandboxBootMessage>): void {
   let result: unknown;
 
   try {
-    // Plugin code is evaluated only after stripping, as a strict-mode script like in SES
+    // Evaluated only after stripping; strict mode keeps the semantics plugins had under SES
     result = evaluateIndirectly(`"use strict";${source}`);
 
     for (const hook of LifecycleHooks) {

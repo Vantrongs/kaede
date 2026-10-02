@@ -16,8 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import "ses";
-
 import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
 import { parsePermission } from "@/lib/permissions/parse-permission.ts";
 import { globalStates } from "@/states/global.ts";

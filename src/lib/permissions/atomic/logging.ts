@@ -1,5 +1,3 @@
-import "ses";
-
 import { readTextFile } from "@tauri-apps/plugin-fs";
 
 import FileStructure from "@/constants/file-structure.ts";
