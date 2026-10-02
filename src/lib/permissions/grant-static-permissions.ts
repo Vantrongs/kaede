@@ -19,37 +19,41 @@
 import "ses";
 
 import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
-import { handlePermission } from "@/lib/permissions/handle-permission.ts";
+import { parsePermission } from "@/lib/permissions/parse-permission.ts";
 import { globalStates } from "@/states/global.ts";
 import type { PermissionType } from "@/types/extensions/permission.type.ts";
 
+/**
+ * Records the permissions declared in the plugin metadata as granted.
+ *
+ * @param artifactSha256 - the artifact whose grants are recorded
+ * @param permissions - permissions from the plugin metadata
+ * @returns the granted permissions
+ */
 export function grantStaticPermissions({
-  id,
   artifactSha256,
-  permissions,
+  permissions = [],
 }: {
-  "id"            : string;
   // Grants are stored per artifact, so a changed archive with the same ID does not inherit them
   "artifactSha256": string;
-  "permissions"?  : Array<PermissionType>;
-}): Record<string, unknown> {
-  const currentPermissions = globalStates.extensions.permissions;
-  const scopedThis: Record<string, unknown> = {};
-
-  if (!permissions) {
-    return scopedThis;
+  "permissions"?  : Array<PermissionType | string>;
+}): Array<string> {
+  for (const permission of permissions) {
+    if (parsePermission(permission) === undefined) {
+      throw new TypeError(`The static permission '${permission}' is invalid`);
+    }
   }
 
+  const currentPermissions = globalStates.extensions.permissions;
   const key: string = getGrantKey(artifactSha256);
 
-  if (currentPermissions?.[key] === undefined) {
+  if (currentPermissions[key] === undefined) {
     currentPermissions[key] = {};
   }
 
   for (const permission of permissions) {
-    scopedThis[permission] = handlePermission(permission, id);
     currentPermissions[key][permission] = true;
   }
 
-  return harden(scopedThis);
+  return [...permissions];
 }

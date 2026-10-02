@@ -122,7 +122,7 @@ onMounted(async () => {
 
     const permissions = metadata.permissions ?? [];
 
-    const api = Extensions.runInSandbox({ id, artifactSha256, permissions, code });
+    const api = await Extensions.runInSandbox({ id, artifactSha256, permissions, code });
 
     // If 'api' is missing, then the extension did not load
     if (!api) {

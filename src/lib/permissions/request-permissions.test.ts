@@ -18,22 +18,25 @@
 
 import { beforeEach, expect, mock, test } from "bun:test";
 
-// 'harden' comes from 'lockdown()', which would freeze the intrinsics of the whole test process
-(globalThis as unknown as { "harden": <T>(value: T) => T }).harden = <T>(value: T): T => value;
+import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
 
 const storedPermissions: Record<string, Record<string, boolean>> = {};
-const failingPermission = "internet::http-get";
+const failingArtifact: string = "artifact-failing";
 
 mock.module("@/states/global.ts", () => ({
-  "globalStates": { "extensions": { "permissions": storedPermissions } },
-}));
-mock.module("@/lib/permissions/handle-permission.ts", () => ({
-  "handlePermission": (permission: string): string => {
-    if (permission === failingPermission) {
-      throw new TypeError("Internet permissions must include a URL scope");
-    }
+  "globalStates": {
+    "extensions": {
+      // Stands for a store that cannot record an answer
+      "permissions": new Proxy(storedPermissions, {
+        "set": (target, property, value): boolean => {
+          if (property === getGrantKey(failingArtifact)) {
+            throw new Error("The answer cannot be stored");
+          }
 
-    return "granted scope";
+          return Reflect.set(target, property, value);
+        },
+      }),
+    },
   },
 }));
 
@@ -72,7 +75,6 @@ beforeEach(() => {
 
 test("a static grant is invisible to another artifact with the same ID", async () => {
   grantStaticPermissions({
-    "id"            : pluginId,
     "artifactSha256": "artifact-x",
     "permissions"   : [permission],
   });
@@ -81,25 +83,24 @@ test("a static grant is invisible to another artifact with the same ID", async (
   const granted = await __requestPermissions([permission], pluginId, "artifact-y", request);
 
   expect(prompted).toEqual([permission]);
-  expect(granted).toEqual([false]);
+  expect(granted).toEqual([[permission, false]]);
 });
 
 test("a requested grant is invisible to another artifact with the same ID", async () => {
   const first = prompter(true);
 
   expect(await __requestPermissions([permission], pluginId, "artifact-x", first.request))
-    .toEqual(["granted scope"]);
+    .toEqual([[permission, true]]);
 
   const second = prompter(false);
   const granted = await __requestPermissions([permission], pluginId, "artifact-y", second.request);
 
   expect(second.prompted).toEqual([permission]);
-  expect(granted).toEqual([false]);
+  expect(granted).toEqual([[permission, false]]);
 });
 
 test("a grant stays visible to the same artifact", async () => {
   grantStaticPermissions({
-    "id"            : pluginId,
     "artifactSha256": "artifact-x",
     "permissions"   : [permission],
   });
@@ -108,7 +109,7 @@ test("a grant stays visible to the same artifact", async () => {
   const granted = await __requestPermissions([permission], pluginId, "artifact-x", request);
 
   expect(prompted).toEqual([]);
-  expect(granted).toEqual(["granted scope"]);
+  expect(granted).toEqual([[permission, true]]);
 });
 
 test("a legacy grant under an ID equal to an artifact hash is not its grant", async () => {
@@ -119,7 +120,7 @@ test("a legacy grant under an ID equal to an artifact hash is not its grant", as
   const granted = await __requestPermissions([permission], pluginId, "artifact-x", request);
 
   expect(prompted).toEqual([permission]);
-  expect(granted).toEqual([false]);
+  expect(granted).toEqual([[permission, false]]);
 });
 
 // Holds one prompt at a time, like 'PermissionsHandler.vue'
@@ -150,30 +151,30 @@ test("overlapping requests each get their own answer", async () => {
   await Bun.sleep(0);
   expect(shown()).toBe(permission);
   answer(true);
-  expect(await first).toEqual(["granted scope"]);
+  expect(await first).toEqual([[permission, true]]);
   expect(await empty).toEqual([]);
 
   await Bun.sleep(0);
   expect(shown()).toBe(permission);
   answer(false);
-  expect(await second).toEqual([false]);
+  expect(await second).toEqual([[permission, false]]);
   expect(shown()).toBeUndefined();
 });
 
 test("a failing grant rejects and dismisses the prompt", async () => {
   const { shown, answer, request } = modal();
-  const failing = __requestPermissions([failingPermission], pluginId, "artifact-x", request);
+  const failing = __requestPermissions([permission], pluginId, failingArtifact, request);
 
   await Bun.sleep(0);
   answer(true);
-  await expect(failing).rejects.toThrow("URL scope");
+  await expect(failing).rejects.toThrow("cannot be stored");
   expect(shown()).toBeUndefined();
 
   const next = __requestPermissions([permission], pluginId, "artifact-x", request);
 
   await Bun.sleep(0);
   answer(true);
-  expect(await next).toEqual(["granted scope"]);
+  expect(await next).toEqual([[permission, true]]);
 });
 
 test("an unknown permission rejects without a prompt and does not block others", async () => {
@@ -188,7 +189,7 @@ test("an unknown permission rejects without a prompt and does not block others",
   await Bun.sleep(0);
   expect(shown()).toBe(permission);
   answer(true);
-  expect(await next).toEqual(["granted scope"]);
+  expect(await next).toEqual([[permission, true]]);
 });
 
 test("closing the prompt rejects the active and the waiting requests", async () => {
@@ -210,7 +211,7 @@ test("closing the prompt rejects the active and the waiting requests", async () 
 
   await Bun.sleep(0);
   reopened.answer(true);
-  expect(await next).toEqual(["granted scope"]);
+  expect(await next).toEqual([[permission, true]]);
 });
 
 test("the extension cannot change the permissions after they are checked", async () => {
@@ -230,7 +231,7 @@ test("the extension cannot change the permissions after they are checked", async
   await Bun.sleep(0);
   expect(shown()).toBe("time::date");
   answer(true);
-  expect(await changed).toEqual(["granted scope", "granted scope"]);
+  expect(await changed).toEqual([[permission, true], ["time::date", true]]);
 });
 
 test("a request from an extension with an empty ID is prompted", async () => {
@@ -240,5 +241,38 @@ test("a request from an extension with an empty ID is prompted", async () => {
   await Bun.sleep(0);
   expect(shown()).toBe(permission);
   answer(false);
-  expect(await empty).toEqual([false]);
+  expect(await empty).toEqual([[permission, false]]);
+});
+
+test("an argument that the permission does not take rejects without a prompt", async () => {
+  const { shown, request } = modal();
+
+  for (const invalid of ["internet::http-get", "internet::http-get::not a URL", "time::date::x"]) {
+    await expect(__requestPermissions([permission, invalid], pluginId, "artifact-x", request))
+      .rejects.toThrow("Unknown permission");
+    expect(shown()).toBeUndefined();
+  }
+
+  expect(storedPermissions).toEqual({});
+});
+
+test("recorded decisions are returned and the rest are prompted", async () => {
+  storedPermissions[getGrantKey("artifact-x")] = { "log::write": true, "log::read": false };
+
+  const { prompted, request } = prompter(true);
+  const decisions = await __requestPermissions(
+    ["log::write", "log::read", "internet::http-get::https://example.com"],
+    pluginId,
+    "artifact-x",
+    request,
+  );
+
+  expect(prompted).toEqual(["internet::http-get::https://example.com"]);
+  expect(decisions).toEqual([
+    ["log::write", true],
+    ["log::read", false],
+    ["internet::http-get::https://example.com", true],
+  ]);
+  expect(storedPermissions[getGrantKey("artifact-x")]["internet::http-get::https://example.com"])
+    .toBe(true);
 });

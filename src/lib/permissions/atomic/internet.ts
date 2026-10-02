@@ -20,6 +20,8 @@ import "ses";
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import type { SandboxFetchRequestType } from "@/lib/extensions/sandbox/host/host-methods.ts";
+import type { SandboxFetchResponse } from "@/lib/extensions/sandbox/protocol.ts";
 import { log } from "@/lib/logging/log.ts";
 
 type RestrictedBlob = {
@@ -267,4 +269,49 @@ export function handleInternetPermission({
       });
     }
   }
+}
+
+/**
+ * Performs a fetch for a sandboxed plugin after the host checked its grant.
+ * The same rules as above apply: the URL must stay inside the granted scope,
+ * redirects are not followed, and POST bodies are restricted.
+ *
+ * @param id - a string that represents the plugin ID
+ * @param request - untrusted request parameters and the granted URL scope
+ * @returns the response reduced to data
+ */
+export async function fetchForPlugin(
+  id: string,
+  { scope, argument, client, url, body, contentType = "text/plain" }: SandboxFetchRequestType,
+): Promise<SandboxFetchResponse> {
+  const method = scope === "http-get" ? "GET" as const : "POST" as const;
+  const init: RequestInit = { method, "redirect": "manual" };
+
+  if (method === "POST") {
+    validateRequestData(body, contentType);
+    init.body = body as BodyInit | undefined;
+    init.headers = { "Content-Type": contentType as string };
+  }
+
+  hook({
+    id,
+    url,
+    argument,
+    method,
+    "label": client === "web" ? "Web" : "Tauri",
+    "body" : init.body as string | ArrayBuffer | Uint8Array | undefined,
+  });
+
+  const response: Response = await (client === "web" ? fetch : tauriFetch)(url as string, init);
+
+  return {
+    "status"     : response.status,
+    "statusText" : response.statusText,
+    "ok"         : response.ok,
+    "redirected" : response.redirected,
+    "type"       : response.type,
+    "url"        : response.url,
+    "contentType": response.headers.get("content-type") ?? "",
+    "body"       : await response.arrayBuffer(),
+  };
 }

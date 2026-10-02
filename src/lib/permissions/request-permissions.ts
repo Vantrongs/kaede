@@ -18,9 +18,8 @@
 
 import "ses";
 
-import { PermissionsList } from "@/constants/permissions.ts";
 import { getGrantKey } from "@/lib/permissions/get-grant-key.ts";
-import { handlePermission } from "@/lib/permissions/handle-permission.ts";
+import { parsePermission } from "@/lib/permissions/parse-permission.ts";
 import { globalStates } from "@/states/global.ts";
 import type { PermissionType } from "@/types/extensions/permission.type.ts";
 
@@ -42,24 +41,22 @@ export function __cancelPermissionRequests(): void {
   cancelPrompt?.(new Error("The permission prompt was closed"));
 }
 
-function isKnownPermission(permission: unknown): permission is string {
-  if (typeof permission !== "string") {
-    return false;
-  }
-
-  // The third part is an argument, e.g., 'internet::http-get::https://github.com'
-  const [base, scope]: Array<string> = permission.split("::");
-
-  return PermissionsList.includes(`${base}::${scope}` as PermissionType);
-}
-
+/**
+ * Asks the user for every permission that has no recorded decision yet.
+ *
+ * @param permissions - an untrusted value provided by the plugin
+ * @param extension - the plugin ID shown in the prompt
+ * @param artifactSha256 - the artifact whose decisions are recorded
+ * @param request - shows the permission modal, or hides it when called without arguments
+ * @returns a '[permission, granted]' pair for every requested permission
+ */
 export function __requestPermissions(
   permissions: Array<PermissionType | string> | unknown,
   extension: string,
   // Grants are stored per artifact, so a changed archive with the same ID does not inherit them
   artifactSha256: string,
   request: PromptType,
-): Promise<Array<unknown>> {
+): Promise<Array<[string, boolean]>> {
   const requestGeneration: number = generation;
   const current = queue.then(() => {
     if (requestGeneration !== generation) {
@@ -80,7 +77,7 @@ async function requestInTurn(
   extension: string,
   artifactSha256: string,
   request: PromptType,
-): Promise<Array<unknown>> {
+): Promise<Array<[string, boolean]>> {
   if (!Array.isArray(permissions)) {
     throw new TypeError("Permissions must be an array");
   }
@@ -96,27 +93,26 @@ async function requestInTurn(
     (_, index: number): string => {
       const permission: unknown = permissions[index];
 
-      if (!isKnownPermission(permission)) {
-        throw new TypeError(`Unknown permission: ${String(permission)}`);
+      if (parsePermission(permission) === undefined) {
+        const label: string = typeof permission === "string" ? permission : typeof permission;
+
+        throw new TypeError(`Unknown permission: ${label}`);
       }
 
-      return permission;
+      return permission as string;
     },
   );
 
   const currentPermissions = globalStates.extensions.permissions;
   const key: string = getGrantKey(artifactSha256);
-  const granted = [];
+  const granted: Array<[string, boolean]> = [];
 
   try {
     for (const permission of requested) {
       const hasPermission: boolean | undefined = currentPermissions?.[key]?.[permission];
 
       if (hasPermission !== undefined) {
-        granted.push(hasPermission
-          // 'handlePermission' validates the permission type, so we are safe to typecast
-          ? handlePermission(permission as PermissionType, extension)
-          : false);
+        granted.push([permission, hasPermission]);
 
         continue;
       }
@@ -130,16 +126,12 @@ async function requestInTurn(
         request(permission, extension, resolve);
       });
 
-      granted.push(allowed
-        // 'handlePermission' validates the permission type, so we are safe to typecast
-        ? handlePermission(permission as PermissionType, extension)
-        : false);
-
       if (currentPermissions[key] === undefined) {
         currentPermissions[key] = {};
       }
 
       currentPermissions[key][permission] = allowed;
+      granted.push([permission, allowed]);
     }
   } finally {
     cancelPrompt = undefined;
@@ -147,5 +139,5 @@ async function requestInTurn(
     request();
   }
 
-  return harden(granted);
+  return granted;
 }

@@ -18,25 +18,30 @@
 
 import { expect, test } from "bun:test";
 
-import { GlobalInternals } from "@/extendable/global-internals.ts";
-import Extensions from "@/lib/extensions";
+import { parsePermission } from "@/lib/permissions/parse-permission.ts";
 
-test("permission requests reach the handler installed after the module loaded", async () => {
-  const installed = GlobalInternals.requestPermissions;
-  const calls: Array<Array<unknown>> = [];
+test("Parse Permission: accepts known permissions", () => {
+  expect(parsePermission("log::write")).toEqual({ "key": "log::write", "argument": undefined });
+  expect(parsePermission("internet::http-get::http://[::1]:8080/a")).toEqual({
+    "key"     : "internet::http-get",
+    "argument": "http://[::1]:8080/a",
+  });
+});
 
-  GlobalInternals.requestPermissions = async (...parameters): Promise<Array<[string, boolean]>> => {
-    calls.push(parameters);
-
-    return [["time::date", true]];
-  };
-
-  try {
-    const result = await Extensions.requestPermissions(["time::date"], "plugin", "artifact");
-
-    expect(result).toEqual([["time::date", true]]);
-    expect(calls).toEqual([[["time::date"], "plugin", "artifact"]]);
-  } finally {
-    GlobalInternals.requestPermissions = installed;
+test("Parse Permission: rejects unknown permissions and wrong arguments", () => {
+  for (const permission of [
+    undefined,
+    {},
+    "log",
+    "log::",
+    "log::writer",
+    "time::performanceLOL",
+    "log::write::",
+    "log::write::extra",
+    "internet::http-get",
+    "internet::http-get::",
+    "internet::http-get::not a url",
+  ]) {
+    expect(parsePermission(permission)).toBeUndefined();
   }
 });

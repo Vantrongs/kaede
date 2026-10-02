@@ -103,21 +103,31 @@ const extensionHandler = {
 
     // Dirty lifecycle handler executed if 'needsCleanRun' is true
     if (!needsCleanRun) {
+      const existing = extensionStates.executed.find(searching => (
+        searching.extension.artifactSha256 === extension.artifactSha256 &&
+
+        /*
+         * Just to be sure... Maybe there will be extensions that can work in both environments
+         * with the same code
+         */
+        searching.extension.metadata.type === extension.metadata.type
+      ));
+
+      // A sandboxed plugin whose lifecycle handler hung was terminated and shown as disabled
+      if (existing === undefined) {
+        return;
+      }
+
       globalStates.extensions.list[index].enabled = !enabled;
 
       // 'enabled' being true means that the extension is being enabled
       if (enabled) {
-        const existing = extensionStates.executed.find(searching => (
-          searching.extension.artifactSha256 === extension.artifactSha256 &&
-
-          /*
-           * Just to be sure... Maybe there will be extensions that can work in both environments
-           * with the same code
-           */
-          searching.extension.metadata.type === extension.metadata.type
+        void Promise.resolve(existing.api.afterDisable?.()).catch((error: unknown) => log.error(
+          __PRE_BUNDLED_FILENAME__,
+          `Error after disabling extension '${extension.id}' ` +
+          `(artifact sha256: ${extension.artifactSha256}):`,
+          Errors.prettify(error),
         ));
-
-        existing?.api?.afterDisable?.();
       }
 
       return;
@@ -264,8 +274,7 @@ const extensionHandler = {
          * See the comments above for explanations for why we don't import directly
          */
         const Extensions = GlobalObject.libs.Extensions;
-        // This is a sync function, but the lifecycle handlers might be async
-        const api = Extensions.runInSandbox({
+        const api = await Extensions.runInSandbox({
           "id"            : extension.id,
           "artifactSha256": extension.artifactSha256,
           permissions,

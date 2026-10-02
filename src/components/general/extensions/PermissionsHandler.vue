@@ -46,7 +46,7 @@ function requestPermissions(
   permissions: unknown,
   extension: string,
   artifactSha256: string,
-): Promise<Array<unknown>> {
+): Promise<Array<[string, boolean]>> {
   return __requestPermissions(permissions, extension, artifactSha256, handlePermissionRequest);
 }
 
@@ -63,7 +63,7 @@ GlobalInternals.requestPermissions = requestPermissions;
 
 // Extensions are disabled after this component is gone, and their requests must not wait forever
 onUnmounted(() => {
-  GlobalInternals.requestPermissions = async (): Promise<Array<unknown>> => {
+  GlobalInternals.requestPermissions = async (): Promise<Array<[string, boolean]>> => {
     throw new Error("The permission prompt is closed");
   };
   __cancelPermissionRequests();
